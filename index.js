@@ -87,6 +87,13 @@ app.post("/api/match", async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 });
+app.get("/", async (req, res) => {
+  try {
+    res.send("Hello start cricket")
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
 
 // GET: Fetch match data
 app.get("/api/match", async (req, res) => {
