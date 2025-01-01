@@ -1,42 +1,43 @@
 const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
-const dotenv = require("dotenv");
+const { Server } = require("socket.io");
 const http = require("http");
-const socketIO = require("socket.io");
 
-dotenv.config();
-
+// Initialize app and server
 const app = express();
 const server = http.createServer(app);
-const io = socketIO(server);
+const io = new Server(server, { cors: { origin: "*" } });
 
 // Middleware
-app.use(express.json());
 app.use(cors());
+app.use(express.json());
 
-// MongoDB Connection
+// MongoDB connection
+mongoose.connect("mongodb://localhost:27017/cricket", {
+  useNewUrlParser: true,
+  useUnifiedTopology: true,
+});
 
-console.log(process.env.MONGO_URI);
-mongoose
-  .connect(process.env.MONGO_URI)
-  .then(() => console.log("Connected to MongoDB"))
-  .catch((err) => console.error("MongoDB connection error:", err));
-
-// Match Schema
+// Ball Schema
 const ballSchema = new mongoose.Schema({
   runs: { type: Number, default: 0 },
   isOut: { type: Boolean, default: false },
   ballNumber: { type: Number, required: true },
 });
 
+// Over Schema
 const overSchema = new mongoose.Schema({
   balls: [ballSchema],
   overNumber: { type: Number, required: true },
 });
 
+// Match Schema
 const matchSchema = new mongoose.Schema({
-  currentOver: overSchema,
+  currentOver: {
+    balls: [ballSchema],
+    overNumber: { type: Number, required: true },
+  },
   overHistory: [overSchema],
   totalRuns: { type: Number, default: 0 },
   totalWickets: { type: Number, default: 0 },
@@ -45,9 +46,7 @@ const matchSchema = new mongoose.Schema({
 
 const Match = mongoose.model("Match", matchSchema);
 
-// APIs
-
-// POST: Update match data
+// POST API to add ball data
 app.post("/api/match", async (req, res) => {
   const { runs, isOut } = req.body;
 
@@ -63,7 +62,6 @@ app.post("/api/match", async (req, res) => {
     const currentOver = match.currentOver;
 
     if (currentOver.balls.length === 6) {
-      // Push the completed over to history and start a new over
       match.overHistory.push(currentOver);
       match.currentOver = {
         balls: [],
@@ -71,31 +69,34 @@ app.post("/api/match", async (req, res) => {
       };
     }
 
-    // Add the new ball
     const ballNumber = currentOver.balls.length + 1;
     currentOver.balls.push({ runs, isOut, ballNumber });
 
-    // Update total runs and wickets
     if (isOut) match.totalWickets += 1;
     else match.totalRuns += runs;
 
     await match.save();
 
-    io.emit("match-updated", match); // Real-time update via socket
-    res.status(200).json({ message: "Match updated", match });
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
-});
-app.get("/", async (req, res) => {
-  try {
-    res.send("Hello start cricket")
+    const formattedResponse = {
+      totalRuns: match.totalRuns,
+      totalWickets: match.totalWickets,
+      totalOvers: match.overHistory.length + 1,
+      currentOverNumber: match.currentOver.overNumber,
+      currentBall: `${match.currentOver.overNumber - 1}.${
+        currentOver.balls.length
+      }`,
+      currentOver: match.currentOver.balls,
+      overHistory: match.overHistory.map((over) => over.balls),
+    };
+
+    io.emit("match-updated", formattedResponse);
+    res.status(200).json(formattedResponse);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 });
 
-// GET: Fetch match data
+// GET API to fetch match data
 app.get("/api/match", async (req, res) => {
   try {
     const match = await Match.findOne();
@@ -103,18 +104,25 @@ app.get("/api/match", async (req, res) => {
       return res.status(404).json({ message: "Match data not found" });
     }
 
-    res.status(200).json({
+    const formattedResponse = {
       totalRuns: match.totalRuns,
       totalWickets: match.totalWickets,
-      currentOver: match.currentOver,
-      maxOvers: match.maxOvers,
-    });
+      totalOvers: match.overHistory.length + 1,
+      currentOverNumber: match.currentOver.overNumber,
+      currentBall: `${match.currentOver.overNumber - 1}.${
+        match.currentOver.balls.length
+      }`,
+      currentOver: match.currentOver.balls,
+      overHistory: match.overHistory.map((over) => over.balls),
+    };
+
+    res.status(200).json(formattedResponse);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 });
 
-// GET: Fetch over history
+// GET API to fetch over history
 app.get("/api/match/overHistory", async (req, res) => {
   try {
     const match = await Match.findOne();
@@ -122,14 +130,17 @@ app.get("/api/match/overHistory", async (req, res) => {
       return res.status(404).json({ message: "No over history found" });
     }
 
-    res.status(200).json({ overHistory: match.overHistory });
+    const formattedOverHistory = match.overHistory.map((over) => ({
+      overNumber: over.overNumber,
+      balls: over.balls,
+    }));
+
+    res.status(200).json({ overHistory: formattedOverHistory });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 });
 
 // Start server
-const PORT = process.env.PORT || 5000;
-server.listen(PORT, () =>
-  console.log(`Server running on http://localhost:${PORT}`)
-);
+const PORT = 5000;
+server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
