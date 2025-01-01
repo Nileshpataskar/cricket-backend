@@ -3,7 +3,7 @@ const mongoose = require("mongoose");
 const cors = require("cors");
 const { Server } = require("socket.io");
 const http = require("http");
-
+require("dotenv").config();
 // Initialize app and server
 const app = express();
 const server = http.createServer(app);
@@ -13,11 +13,9 @@ const io = new Server(server, { cors: { origin: "*" } });
 app.use(cors());
 app.use(express.json());
 
+// console.log(process.env.MONGO_URI)
 // MongoDB connection
-mongoose.connect("mongodb://localhost:27017/cricket", {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-});
+mongoose.connect(process.env.MONGO_URI);
 
 // Ball Schema
 const ballSchema = new mongoose.Schema({
@@ -44,7 +42,7 @@ const matchSchema = new mongoose.Schema({
   maxOvers: { type: Number, default: 20 },
 });
 
-const Match = mongoose.model("Match", matchSchema);
+const Match = mongoose.model("NileshCricketMatch", matchSchema);
 
 // POST API to add ball data
 app.post("/api/match", async (req, res) => {
@@ -101,7 +99,7 @@ app.get("/api/match", async (req, res) => {
   try {
     const match = await Match.findOne();
     if (!match) {
-      return res.status(404).json({ message: "Match data not found" });
+      return res.json({ message: "Match data not found" });
     }
 
     const formattedResponse = {
@@ -127,7 +125,7 @@ app.get("/api/match/overHistory", async (req, res) => {
   try {
     const match = await Match.findOne();
     if (!match || match.overHistory.length === 0) {
-      return res.status(404).json({ message: "No over history found" });
+      return res.json({ message: "No over history found" });
     }
 
     const formattedOverHistory = match.overHistory.map((over) => ({
